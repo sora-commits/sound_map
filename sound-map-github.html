@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Карта звуков</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#12161c; --line:#232a33; --text:#e7ecf2; --dim:#8b96a5; --accent:#5ee0c0;
+    --lo:#3a2e6e; --mid:#c94f7c; --hi:#f2a340;
+    --zA:#5ee0c0; --zB:#f2a340; --zC:#9b8cff;
+    box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:inherit}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Segoe UI",Roboto,sans-serif; height:100%}
+  .app{display:flex; min-height:100vh}
+  .panel{width:310px; flex:0 0 310px; background:var(--panel); border-right:1px solid var(--line); padding:18px; display:flex; flex-direction:column; gap:16px; overflow-y:auto}
+  h1{font-size:17px; margin:0}
+  .sub{color:var(--dim); font-size:12.5px; line-height:1.5; margin:2px 0 0}
+  .field{display:flex; flex-direction:column; gap:6px}
+  .field label{font-size:12px; color:var(--dim)}
+  select, .btn, input[type=text]{background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px 9px; font-size:13px; font-family:inherit}
+  .btn{cursor:pointer; text-align:center}
+  .btn:hover{border-color:var(--accent)}
+  .mode{display:flex; border:1px solid var(--line); border-radius:6px; overflow:hidden}
+  .mode button{flex:1; padding:7px 0; background:none; border:none; color:var(--dim); font-size:12.5px; cursor:pointer}
+  .mode button.active{background:var(--accent); color:#0b1210; font-weight:600}
+  .checks{display:flex; gap:10px; font-size:13px}
+  .checks label{display:flex; align-items:center; gap:5px; color:var(--text)}
+  .freq-readout{display:flex; justify-content:space-between; font-variant-numeric:tabular-nums; font-size:13px; color:var(--accent)}
+  .dualslider{position:relative; height:26px}
+  .dualslider input[type=range]{position:absolute; width:100%; top:8px; margin:0; -webkit-appearance:none; background:none; pointer-events:none}
+  .dualslider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; pointer-events:auto; width:16px; height:16px; border-radius:50%; background:var(--accent); border:2px solid var(--bg); cursor:pointer}
+  .dualslider input[type=range]::-moz-range-thumb{pointer-events:auto; width:16px; height:16px; border-radius:50%; background:var(--accent); border:2px solid var(--bg); cursor:pointer}
+  .dualslider input[type=range]::-webkit-slider-runnable-track{height:4px; background:transparent}
+  .dualslider .track{position:absolute; top:11px; left:0; right:0; height:4px; background:var(--line); border-radius:2px}
+  .legend{height:10px; border-radius:5px; background:linear-gradient(90deg,var(--lo),var(--mid),var(--hi))}
+  .legend-labels{display:flex; justify-content:space-between; font-size:11px; color:var(--dim)}
+  .zonekey{display:flex; gap:12px; font-size:12px}
+  .zonekey span{display:flex; align-items:center; gap:5px}
+  .dot{width:9px; height:9px; border-radius:50%; display:inline-block}
+  .hint{font-size:12px; color:var(--dim); line-height:1.5; border-top:1px solid var(--line); padding-top:12px}
+  .status{font-size:12px; color:var(--dim); min-height:16px}
+  #map{flex:1; background:#1a1f27}
+  .zlabel{color:#000a; font-weight:700; font-size:11px; text-align:center; line-height:22px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <div><h1>Карта звуков</h1><p class="sub">Кликните по карте, чтобы поставить точку (например A3), затем загрузите данные и выбирайте диапазон.</p></div>
+
+    <div class="field">
+      <label>Режим</label>
+      <div class="mode">
+        <button id="modeCalib" class="active">Разметка точек</button>
+        <button id="modeView">Просмотр</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Данные записей (JSON)</label>
+      <input type="file" id="dataInput" accept="application/json">
+      <span class="status" id="dataStatus">Данные не загружены — показан пример.</span>
+    </div>
+
+    <div class="field">
+      <label>Частотный диапазон</label>
+      <div class="freq-readout"><span id="fMinLbl">20 Гц</span><span id="fMaxLbl">20000 Гц</span></div>
+      <div class="dualslider">
+        <div class="track"></div>
+        <input type="range" id="fMin" min="0" max="1000" value="0">
+        <input type="range" id="fMax" min="0" max="1000" value="1000">
+      </div>
+      <div class="legend"></div>
+      <div class="legend-labels"><span>тише</span><span>громче</span></div>
+    </div>
+
+    <div class="field">
+      <label>Зона</label>
+      <select id="zoneSel"><option value="all">Все</option></select>
+    </div>
+
+    <div class="field">
+      <label>День</label>
+      <select id="daySel"><option value="all">Все</option><option value="weekday">Будни</option><option value="weekend">Выходные</option></select>
+    </div>
+
+    <div class="field">
+      <label>Время суток</label>
+      <div class="checks">
+        <label><input type="checkbox" class="tod" value="utro" checked> Утро</label>
+        <label><input type="checkbox" class="tod" value="den" checked> День</label>
+        <label><input type="checkbox" class="tod" value="vecher" checked> Вечер</label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Условные цвета зон</label>
+      <div class="zonekey" id="zoneKey"></div>
+    </div>
+
+    <button class="btn" id="exportBtn">Скопировать разметку точек</button>
+    <p class="hint" id="modeHint">Кликните по карте, чтобы поставить точку. Формат метки: буква зоны + номер, например A3.</p>
+  </aside>
+  <div id="map"></div>
+</div>
+
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  const FMIN=20, FMAX=20000;
+  const sliderToHz = v => Math.round(FMIN * Math.pow(FMAX/FMIN, v/1000));
+  const zoneColor = z => ({A:'#5ee0c0',B:'#f2a340',C:'#9b8cff'}[z] || '#8b96a5');
+
+  let mode='calib';
+  let points = {};       // {"A3": {lat,lng}}
+  let recordings = [];
+  let markers = {};      // {"A3": L.marker}
+
+  try{ const s=localStorage.getItem('soundmap_points_v2'); if(s) points=JSON.parse(s); }catch(e){}
+  function savePoints(){ try{ localStorage.setItem('soundmap_points_v2', JSON.stringify(points)); }catch(e){} }
+
+  function demoData(){
+    const bins=[]; for(let i=0;i<40;i++) bins.push(Math.round(FMIN*Math.pow(FMAX/FMIN,i/39)));
+    const recs=[]; const dates=['2024-06-03','2024-06-08']; // будний + выходной
+    const times=['08:30','14:00','20:00'];
+    const labels=['A1','A2','A3','B1','B2','B3','C1','C2','C3'];
+    if(Object.keys(points).length===0){
+      const base=[52.37,4.90];
+      labels.forEach((l,i)=>{ points[l]={lat:base[0]+(i%3)*0.004, lng:base[1]+Math.floor(i/3)*0.006}; });
+    }
+    labels.forEach((label,p)=>{
+      dates.forEach(d=>times.forEach(t=>{
+        const db = bins.map(f=>{
+          const bump=Math.exp(-Math.pow(Math.log(f)-Math.log(200+p*300),2)/2);
+          return Math.round((-55+bump*30+Math.random()*6)*10)/10;
+        });
+        recs.push({point:label, date:d, time:t, freq_bins:bins, db});
+      }));
+    });
+    return recs;
+  }
+  recordings = demoData();
+
+  const map = L.map('map').setView([Object.values(points)[0]?.lat || 52.37, Object.values(points)[0]?.lng || 4.90], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
+  }).addTo(map);
+
+  function colorFor(t){
+    const stops=[[58,46,110],[201,79,124],[242,163,64]];
+    const seg=t<=0?0:t>=1?1:t*2, i=Math.min(1,Math.floor(seg)), lt=seg-i;
+    const a=stops[i],b=stops[i+1];
+    return `rgb(${a.map((v,k)=>Math.round(v+(b[k]-v)*lt)).join(',')})`;
+  }
+  function timeBucket(t){ const h=parseInt(t.split(':')[0],10); return h<12?'utro':h<18?'den':'vecher'; }
+  function isWeekend(dateStr){ const [y,m,d]=dateStr.split('-').map(Number); return [0,6].includes(new Date(y,m-1,d).getDay()); }
+  function avgDbInRange(rec, lo, hi){ let s=0,n=0; rec.freq_bins.forEach((f,i)=>{ if(f>=lo&&f<=hi){s+=rec.db[i]; n++;} }); return n? s/n : null; }
+
+  function populateZones(){
+    const zones=[...new Set(Object.keys(points).map(l=>l[0]))].sort();
+    $('zoneSel').innerHTML='<option value="all">Все</option>'+zones.map(z=>`<option>${z}</option>`).join('');
+    $('zoneKey').innerHTML=zones.map(z=>`<span><i class="dot" style="background:${zoneColor(z)}"></i>${z}</span>`).join('');
+  }
+
+  function makeIcon(label, ringColor, fillColor){
+    return L.divIcon({
+      className:'', html:`<div style="width:26px;height:26px;border-radius:50%;background:${fillColor};border:3px solid ${ringColor};box-shadow:0 1px 4px #0006" class="zlabel">${label}</div>`,
+      iconSize:[26,26], iconAnchor:[13,13]
+    });
+  }
+
+  function render(){
+    const lo=sliderToHz(+$('fMin').value), hi=Math.max(lo+1, sliderToHz(+$('fMax').value));
+    $('fMinLbl').textContent=lo+' Гц'; $('fMaxLbl').textContent=hi+' Гц';
+    const zoneF=$('zoneSel').value, dayF=$('daySel').value;
+    const tods=[...document.querySelectorAll('.tod:checked')].map(c=>c.value);
+
+    const matches = r => (dayF==='all' || (dayF==='weekend')===isWeekend(r.date)) && tods.includes(timeBucket(r.time));
+
+    const vals=[]; const perPoint={};
+    Object.keys(points).forEach(label=>{
+      const recs=recordings.filter(r=>r.point===label && matches(r));
+      const dbs=recs.map(r=>avgDbInRange(r,lo,hi)).filter(v=>v!==null);
+      perPoint[label]= dbs.length? dbs.reduce((a,b)=>a+b,0)/dbs.length : null;
+      if(perPoint[label]!==null) vals.push(perPoint[label]);
+    });
+    const mn=vals.length?Math.min(...vals):-60, mx=vals.length?Math.max(...vals):-20;
+
+    Object.entries(points).forEach(([label,pos])=>{
+      const zone=label[0], visible = zoneF==='all'||zone===zoneF;
+      const avg=perPoint[label];
+      const t = avg===null?0:(avg-mn)/Math.max(1e-6,(mx-mn));
+      const icon = makeIcon(label, zoneColor(zone), avg===null?'#555':colorFor(t));
+      if(!markers[label]){
+        markers[label]=L.marker([pos.lat,pos.lng],{icon}).addTo(map);
+        markers[label].on('click', ()=>{
+          if(mode==='calib'){
+            if(confirm('Удалить точку '+label+'?')){ delete points[label]; map.removeLayer(markers[label]); delete markers[label]; savePoints(); populateZones(); render(); }
+          } else {
+            const txt = avg===null?'нет данных': avg.toFixed(1)+' дБ';
+            alert(`Точка ${label}\n${lo}–${hi} Гц\nСредняя интенсивность: ${txt}`);
+          }
+        });
+      } else {
+        markers[label].setIcon(icon);
+      }
+      markers[label].setOpacity(visible?1:0.15);
+    });
+  }
+
+  map.on('click', e=>{
+    if(mode!=='calib') return;
+    const label=prompt('Метка точки (например A3):');
+    if(!label) return;
+    points[label.toUpperCase()]={lat:e.latlng.lat, lng:e.latlng.lng};
+    savePoints(); populateZones(); render();
+  });
+
+  $('modeCalib').addEventListener('click', ()=>{ mode='calib'; $('modeCalib').classList.add('active'); $('modeView').classList.remove('active'); $('modeHint').textContent='Кликните по карте, чтобы поставить точку. Клик по существующей — удалить.'; });
+  $('modeView').addEventListener('click', ()=>{ mode='view'; $('modeView').classList.add('active'); $('modeCalib').classList.remove('active'); $('modeHint').textContent='Кликните по точке, чтобы увидеть её среднюю интенсивность.'; });
+
+  $('dataInput').addEventListener('change', e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=ev=>{ try{ recordings=JSON.parse(ev.target.result).recordings||[]; $('dataStatus').textContent=`Загружено записей: ${recordings.length}`; render(); }
+      catch(err){ $('dataStatus').textContent='Ошибка чтения: '+err.message; } };
+    r.readAsText(f);
+  });
+
+  $('exportBtn').addEventListener('click', async ()=>{
+    try{ await navigator.clipboard.writeText(JSON.stringify(points)); $('dataStatus').textContent='Разметка скопирована в буфер обмена.'; }
+    catch(e){ prompt('Скопируйте вручную:', JSON.stringify(points)); }
+  });
+
+  ['fMin','fMax','zoneSel','daySel'].forEach(id=>$(id).addEventListener('input', render));
+  document.querySelectorAll('.tod').forEach(c=>c.addEventListener('change', render));
+
+  populateZones(); render();
+})();
+</script>
+</body>
+</html>
